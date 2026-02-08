@@ -1,0 +1,65 @@
+name: Profile
+
+on:
+  schedule:
+    - cron: "00 06 * * *"
+  workflow_dispatch:
+
+jobs:
+  generate:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: pacman
+        uses: abozanona/pacman-contribution-graph@a885863a68234b1183691ee6f720d6abbc91233e
+        with:
+          github_user_name: ${{ github.repository_owner }}
+
+      - name: post-process svgs
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          pacman_files = [
+              Path("dist/pacman-contribution-graph.svg"),
+              Path("dist/pacman-contribution-graph-dark.svg"),
+          ]
+
+          for path in pacman_files:
+              svg = path.read_text(encoding="utf-8")
+              wall_color = "#6fff91" if "-dark" in path.name else "#307c48"
+              svg = re.sub(r"<text\b[^>]*/>", "", svg)
+              svg = re.sub(r"<text\b[^>]*>[^<]*</text>", "", svg)
+              svg = re.sub(
+                  r'(<rect id="w[hv]-[^"]+"[^>]*\bfill=")#[0-9a-fA-F]{6}(")',
+                  rf"\1{wall_color}\2",
+                  svg,
+              )
+              path.write_text(svg, encoding="utf-8")
+          PY
+
+      - name: push
+        run: |
+          set -euo pipefail
+
+          tmp_dir="$(mktemp -d)"
+          cp dist/pacman-contribution-graph.svg "${tmp_dir}/pacman.svg"
+          cp dist/pacman-contribution-graph-dark.svg "${tmp_dir}/pacman-dark.svg"
+
+          cd "${tmp_dir}"
+          git init
+          git checkout -b output
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "🦥"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin output
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
